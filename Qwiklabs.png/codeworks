@@ -1,0 +1,90 @@
+#Lab 1:Essential Google Cloud Infrastructure:core services: Implementing Cloud SQL
+#Select or create a cloud project
+#Make sure that billing is enabled for the Google Cloud Project.
+
+          #Task 1.Create a Cloud SQL database
+
+gcloud instances create wordpress-db --region= us-central1 --zone= us-central1-a --database-version= MYSQL 5.7  --tier=db-n1-standard-1 --storage-type=SSD --storage-size=10GB
+
+#Configuring private IP for Cloud SQL instances
+
+gcloud --project=[PROJECT_ID] beta sql instances create wordpress-db
+       --network=[VPC_NETWORK_NAME]
+       --no-assign-ip
+
+#Set password for root MYSQL user
+gcloud sql users set-password root --host=% --instance wordpress-db --password Gioche254
+
+#Cloud SQL instance has now been created
+
+          #Task 2.Configuring a proxy on a virtual machine
+
+#1.Set compute/zone property
+gcloud config set compute/zone us-central1-a
+
+#2.SSH into one virtual machine called wordpress-europe-proxy
+#Enable SSH by adding a firewall rule
+
+gcloud compute firewall-rules create --network=NETWORK   default-allow-ssh --allow=tcp:22
+
+#SSH into wordpress-europe-proxy virtual machine.
+gcloud compute ssh wordpress-europe-proxy --zone=europe-west1-a --ssh-flag="-vvv" --ssh-flag="-L 80:localhost:80"
+
+#3.Download cloud SQL proxy and make it executable
+wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy && chmod +x cloud_sql_proxy
+
+#4.Save the connection name of wordpress-db cloud SQL instance through SSH
+export SQL_CONNECTION=[SQL_CONNECTION_NAME]
+
+#Verify environment variable is set
+echo $SQL_CONNECTION
+#Connection name should be printed out.
+
+#5.create a table in Cloud SQL database for the application
+gcloud sql databases create Wordpress --instance=wordpress-db
+[--charset=CHARSET] [--collation=COLLATION]
+
+#6.Activate proxy connection to cloud SQL database and send the process to the background
+./cloud_sql_proxy -instances=$SQL_CONNECTION=tcp:3306 &
+
+             #Task 3.connect an application to the cloud SQL instance
+#1.Find external IP of your virtual machine wordpress-europe-proxy
+gcloud compute instances describe wordpress-europe-proxy \
+  --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+
+#2.configure the wordpress application
+curl -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip && echo
+
+#3.start the mysql session using TCP
+#start the mysql client
+
+mysql -u root -p --host 127.0.0.1
+
+#if prompted enter the root password Gioche254 
+#The mysql prompt appears
+
+
+              #Task 4.connect to Cloud SQL via internal IP
+#1.View internal IP for wordpress-db instance
+gcloud compute instances describe wordpress-db \
+  --format='get(networkInterfaces[0].networkIP)'
+#Note the private IP to be referred to as [SQL_PRIVATE_IP]
+
+#2.Allocate IP range that allows resources in my VPC network to connect to cloud SQL instance using private IP
+
+gcloud services vpc-peerings connect \
+    --service=servicenetworking.googleapis.com \
+    --ranges=google-managed-services-[VPC_NETWORK_NAME] \
+    --network=[VPC_NETWORK_NAME] \
+    --project=[PROJECT_ID]
+#Check whether operation was successful
+gcloud services vpc-peerings operations describe \
+    --name=[OPERATION_NAME]
+
+#3.start the mysql session using TCP
+#start the mysql client
+
+mysql -u root -p --host [SQL_PRIVATE_IP]
+#if prompted enter the root password Gioche254
+
+#'WORDPRESS APPLICATION SUCCESFULLY HOSTED WITH CLOUD SQL DATABASE CONFIGURED IT TO USE BOTH AN EXTERNAL CONNECTION OVER A SECURE PROXY AND A PRIVATE IP ADDRESS'.
